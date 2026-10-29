@@ -1,0 +1,43 @@
+Runtime synced to Sinan-Karakaya/PS2Recomp (DQ8-Recompiled fork)
+
+Problem
+-------
+The local PS2Recomp tree was older than the fork used by DQ8-Recompiled: 71
+files diverged, including rewritten VU execution, EeScheduler (fibres, host
+pacing), real SIF/MPEG/FileIO/RPC/Pad/LibC/MemoryCard stubs, a native IOP with
+the game's own modules, and GS presentation tickets.
+
+Context where it was found
+--------------------------
+Porting Eragon (SLES_541.60, PAL) to Android arm64. Two defects remained after
+the first working APK: the loading screen was painted in shifted horizontal
+blocks and the loading animation never finished.
+
+Applied change
+--------------
+Replaced the runtime layer with the fork's version (both GPLv3):
+- ps2xRuntime/src/lib, ps2xRuntime/include, ps2xRuntime/cmake, ps2xRuntime/vita
+- ps2xRuntime/CMakeLists.txt, root CMakeLists.txt
+- ps2xIOP
+
+Local patches kept on top:
+- ps2xRuntime/src/main.cpp: disc image from argv[2] -> PS2X_CD_IMAGE -> single
+  *.iso next to the boot ELF (Android has no argv).
+- Game config: the missing function boundary at 0x0019CC10 is expressed as a
+  CSV split (entry_0019cc00 ends at 0x19CC0C, FUN_0019cc10 spans
+  0x19CC10-0x19CC20) instead of hand-editing generated code. The recompiler
+  then emits the entry and registers table slot 160516, which fixes the
+  dispatch stall that used to leave the screen green.
+
+Trap worth remembering
+----------------------
+- Functions come from the CSV/ELF table; an *overlapping* extra row is dropped
+  silently (38546 rows still produced 38544 functions). Split the containing
+  range instead of appending a row inside it.
+- The recompiler ignores `git` failures at configure time only because the
+  dependencies are already populated; on this machine git needs
+  `-c http.sslBackend=openssl` (schannel fails with SEC_E_NO_CREDENTIALS).
+- Gradle's CMake invocation and CMake's try_compile stall in the sandboxed
+  session. The native library is therefore built with .ref/native_build.bat
+  (CMake + Ninja + NDK 28.2) and packaged from jniLibs; the original Gradle
+  configuration is kept in android/app/build.gradle.native.

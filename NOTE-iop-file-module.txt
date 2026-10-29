@@ -1,0 +1,47 @@
+IOP file module (FILE.IRX) fails to initialise - loading loop on Eragon
+
+Problem
+-------
+Eragon (SLES_541.60) fills its loading indicator to 100% and resets to zero,
+forever. On the device the loop repeats every few seconds.
+
+Root cause chain (verified with diag.log)
+-----------------------------------------
+1. The game loads its own IOP modules over SIF: SFIOP, SIO2MAN, PADMAN, MCMAN,
+   MCSERV, LIBSD, FILE.IRX, AUDIO.IRX. They only run when the native IOP claims
+   them; the DQ8 parent project fills that allowlist, so ps2xIOP was disabled.
+   Fixed with a "*" wildcard in NativeIop::claims and setModules(runtime, {"*"}).
+2. The modules could not be read at first: adb-pushed files land in a directory
+   owned by shell with mode 2770, so the app's fopen failed. `chmod -R 777` on
+   the pushed directory is required (diag showed handle=0 before).
+3. With modules running, sid 0xFF01 (the game's file server) is registered by
+   FILE.IRX, but every call times out after 2 s.
+4. FILE.IRX prints "File: Initialize v23 (Root=\"host0:\", Base=\"\", ...)" and
+   then "iop assert failed: Status == 0, SfFile.c, 252". Its init fails, so the
+   server thread never processes requests and the game retries the load.
+
+What is implemented locally
+---------------------------
+- IOP cdvdman services answering from the disc image: Init, DiskReady (2),
+  Read, Seek, Standby, Stop, Pause, GetToc (0), GetDiskType (0x14), GetError,
+  Sync, plus noop entries for 7/16/17/18/19/24/28.
+- kprintf expands %s/%d/%u/%x/%X/%p/%c, so driver asserts are readable.
+- NativeIop sets a CDVD reader that reads 2048-byte sectors from IoPaths.cdImage.
+- The game's IOP tree must sit next to the boot ELF (cdRoot), i.e.
+  files/IOP/*.IRX on Android.
+
+Open question
+-------------
+The assert at SfFile.c:252 compares a status against 0 right after
+sceCdInit/sceCdGetToc/sceCdDiskReady. Returning 0 from DiskReady moves the
+failure to line 250 (assert(Status)), returning 2 fails at 252, so the value is
+checked in more than one place. No other cdvd call happens before the assert.
+
+Next step: disassemble FILE.IRX (MIPS R3000, Ghidra) around the initialiser to
+identify which call's result the assert checks, then implement that import
+(candidates: cdvdman #75, ioman #4/#5/#6/#8, sysclib #6/#19).
+
+Trap worth remembering
+----------------------
+handlerFor() resolves imports once at module load, so logging there shows load
+order, not the runtime call order. Instrument the handlers themselves.
