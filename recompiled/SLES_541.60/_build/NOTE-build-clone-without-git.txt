@@ -1,0 +1,39 @@
+build_game.bat fails when the repo checkout has no .git directory
+
+Problem
+-------
+.local/scripts/build_game.bat creates the isolated build tree with
+`git clone "%REPO%" "%CLONE%"`. A source checkout that was downloaded as a ZIP
+(or had its .git removed) cannot be cloned, so the build stops before the
+generated sources are copied and nothing is compiled.
+
+Context where it was found
+--------------------------
+PS2Recomp working copy on Windows: C:\...\PS2Recomp-main, extracted without
+version-control metadata. `git clone` exits non-zero with "does not appear to
+be a git repository". The recompiler step had already succeeded, which makes
+the failure look like a build problem rather than a missing repo.
+
+Example game
+------------
+SLES_541.60 (Eragon, PAL).
+
+Applied fix
+-----------
+build_game.bat now falls back to a recursive copy when the clone fails:
+
+- remove any half-created clone directory
+- robocopy "%REPO%" "%CLONE%" /E
+- exclude .git, out, .local and ps2xRuntime\src\runner (stale generated code
+  from earlier attempts, thousands of files)
+- exclude ps2xRuntime\include\ps2_recompiled_*.h (regenerated per game)
+
+The generated sources are still copied over the result by the following steps,
+so the build tree keeps the same layout a clone would have.
+
+Trap worth remembering
+----------------------
+The clone is guarded by `if not exist "%CLONE%\.git"`. A copied tree never gets
+a .git directory, so the copy branch runs on every build_game invocation. That
+is harmless (the copy is idempotent), but do not treat the missing .git as a
+sign that the previous build tree should be deleted.

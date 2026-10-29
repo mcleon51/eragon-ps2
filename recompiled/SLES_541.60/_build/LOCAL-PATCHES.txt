@@ -1,0 +1,11 @@
+Local patches applied to the working tree (not committed, not upstreamed)
+
+1. ps2xRuntime/src/main.cpp - configure the CD image path for sceCdRead
+   - takes the disc image from argv[2], falling back to PS2X_CD_IMAGE
+   - must run after loadELF(), which resets the IO paths via
+     configureIoPathsFromElf()
+   - follows docs/pending-fixes.md item 1
+
+Reason: IoPaths::cdImage is never set upstream, so raw sector reads from the
+disc fail with "sceCdRead unresolved LBN ... (no mapped file and no configured
+CD image)" and the game hangs on its loading screen.
